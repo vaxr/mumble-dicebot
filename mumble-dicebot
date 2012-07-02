@@ -1,0 +1,200 @@
+#!/usr/bin/ruby
+$: << File.expand_path(File.dirname(__FILE__))
+
+require 'getoptlong'
+require 'socket'
+require 'openssl'
+require 'cgi'
+require 'msg'
+require 'libdice'
+
+
+################################################################################
+## Constants
+################################################################################
+$OPTIONS = GetoptLong.new(['--help', '-h', GetoptLong::NO_ARGUMENT],
+                          ['--user', '-u', GetoptLong::REQUIRED_ARGUMENT],
+                          ['--pass', '-p', GetoptLong::REQUIRED_ARGUMENT],
+                          ['--interval', GetoptLong::REQUIRED_ARGUMENT],
+                          ['--command', '-c', GetoptLong::REQUIRED_ARGUMENT],
+                          ['--verbose', '-v', GetoptLong::NO_ARGUMENT])
+
+$CODES = [MumbleProto::Version, MumbleProto::UDPTunnel, MumbleProto::Authenticate, MumbleProto::Ping, MumbleProto::Reject, MumbleProto::ServerSync, MumbleProto::ChannelRemove, MumbleProto::ChannelState, MumbleProto::UserRemove, MumbleProto::UserState, MumbleProto::BanList, MumbleProto::TextMessage, MumbleProto::PermissionDenied, MumbleProto::ACL, MumbleProto::QueryUsers, MumbleProto::CryptSetup, MumbleProto::ContextActionModify, MumbleProto::ContextAction, MumbleProto::UserList, MumbleProto::VoiceTarget, MumbleProto::PermissionQuery, MumbleProto::CodecVersion]
+
+# options with default values -- may be changed by CLI args
+$HOST = 'localhost'
+$PORT = 64738
+$USER = 'dicebot'
+$PASS = ''
+$COMMAND = '!roll'
+$PING_INTERVAL = 15
+$VERBOSE = false
+
+## Options #####################################################################
+
+$OPTIONS.each do |k,v|
+  case k
+  when '--command'
+    $COMMAND = v
+  when '--help'
+    puts <<-EOF
+Usage: #{$0} [<options>] [host] [port]
+Connects to the specified Mumble server. Default: #{$HOST}:#{$PORT}.
+
+Options:
+  -c, --command    arg       Command word to invoke bot. Default: "!roll".
+  -h, --help                 This help screen.
+      --interval   arg       Time in seconds between two keepalive pings.
+  -p  --pass       arg       Server password. Default: none.
+  -u  --user       arg       Login name. Default: "dicebot".
+  -v  --verbose              Debug output (received packets).
+EOF
+    exit(0)
+  when '--interval'
+    $PING_INTERVAL = v.to_i
+    raise ArgumentError, "Ping interval too low (#{$PING_INTERVAL}), must be > 0." if $PING_INTERVAL <= 0
+  when '--pass'
+    $PASS = v
+  when '--user'
+    $USER = v
+  when '--verbose'
+    $VERBOSE = true
+  end
+end
+
+$HOST = ARGV[0] if ARGV[0]
+$PORT = ARGV[1] if ARGV[1]
+
+$WELCOME_TEXT = "Want me to roll some dice? Type <b>#{$COMMAND} help</b> or see my comment for details."
+$HELP_TEXT = CGI.escapeHTML(get_helptext($COMMAND)).strip.gsub(/\n\n/,'<br/><br/>')
+
+
+################################################################################
+## Messages
+################################################################################
+
+def pack(raw_msg,type)
+  str = raw_msg.serialize_to_string
+  return [type,str.length].pack('nN') + str
+end
+
+def unpack(code,length,data)
+  case(code)
+  when 0..$CODES.size-1
+    m = $CODES[code].new
+    m.parse_from_string(data)
+    puts $CODES[code].to_s if $VERBOSE
+    p m if $VERBOSE
+    return m
+  else
+    puts "Unidentified message: [#{code}][#{length}][#{data}]" if $VERBOSE
+    puts if $VERBOSE
+  end
+end
+
+def msg_version
+  m = MumbleProto::Version.new
+  m.version = 66048
+  m.release = "1.2.0"
+  return pack(m,0)
+end
+
+def msg_auth(usr,pass)
+  m = MumbleProto::Authenticate.new
+  m.username = usr
+  m.password = pass
+  return pack(m,2)
+end
+
+def msg_ping
+  m = MumbleProto::Ping.new
+  return pack(m,3)
+end
+
+def msg_deafmute
+  m = MumbleProto::UserState.new
+  m.self_mute = true
+  m.self_deaf = true
+  m.comment = $HELP_TEXT
+  return pack(m,9)
+end
+
+def msg_text(str,users=nil)
+  m = MumbleProto::TextMessage.new
+  m.message = "<font color=\"#202080\">#{str}</font>".encode("UTF-8")
+  if (users)
+    m.session = users
+  else
+    m.channel_id = [$channel]
+  end
+  return pack(m,11)
+end
+
+
+################################################################################
+## Main
+################################################################################
+
+## Establish Session ###########################################################
+
+# open connection
+puts "Connecting to #{$HOST}:#{$PORT} ...\n\n" if $VERBOSE
+socket = TCPSocket.new($HOST,$PORT)
+socket = OpenSSL::SSL::SSLSocket.new(socket,OpenSSL::SSL::SSLContext.new())
+socket.sync_close = true
+socket.connect
+
+# initialize session
+$names = {}   # list of user names
+$channel = 0  # current channel
+socket.write(msg_version)
+socket.write(msg_auth($USER,$PASS))
+socket.write(msg_deafmute)
+
+# start ping thread to keep session alive
+Thread.new do
+  while (true)
+    socket.write(msg_ping)
+    sleep $PING_INTERVAL
+  end
+end
+
+## Response Loop ###############################################################
+
+while (true)
+  # obtain and decode Mumble packet
+  code = socket.read(2).unpack('n')[0]
+  length = socket.read(4).unpack('N')[0]
+  data = socket.read(length)
+  msg = unpack(code,length,data)
+
+  # handle message
+  case code
+  when 7 # ChannelState
+    if (msg.channel_id)
+      # remember channel ID
+      $channel = msg.channel_id
+    end
+  when 9 # UserState
+    if (msg.name && msg.session)
+      # if this is the first time we see them, greet the user
+      socket.write(msg_text($WELCOME_TEXT,[msg.session])) unless $names[msg.session]
+      # keep track of names
+      $names[msg.session] = msg.name
+    end
+  when 11 # TextMessage
+    if (msg.message =~ /^#{$COMMAND}\s*help\s*$/) # !roll help
+      # show help
+      socket.write(msg_text($HELP_TEXT,[msg.actor]))
+    elsif (msg.message =~ /^#{$COMMAND}\s+(.*)\s*$/) # !roll ...
+      # roll dice
+      begin
+        socket.write(msg_text("<b>#{$names[msg.actor]}</b>: #{substitute($1)}"))
+      rescue ArgumentError => e
+        socket.write(msg_text("<b>Error</b>: #{e}</b>",[msg.actor]))
+      end
+    end
+  end
+end
+
+# TODO: proper socket close? or is it taken care of by Ruby?
