@@ -1,0 +1,11 @@
+Dependencies:
+* ruby-protobuf
+
+Develped for Ruby 1.9.3.
+
+
+For the parameter list, run  $ mumble-dicebot -h
+
+As of now, the script has to be aborted manually (CTRL-C). This should
+automatically disconnect the bot. (Otherwise, the server will kick it
+after half a minute or so of ping silence.)
