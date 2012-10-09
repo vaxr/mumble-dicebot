@@ -1,11 +1,15 @@
-Dependencies:
-* ruby_protobuf (0.4.11)
-
-WARNING: The script will most likely not work with other implementations of protobuf, such as the "protobuf" package. Make sure you install "ruby_protobuf".
-
+Dependcies: A protobuf implementation for Ruby,
+  such as  "ruby_protobuf" (0.4.11)
+  OR       "protobuf" (1.4.2)
 
 
-Develped for Ruby 1.9.3.
+WARNING: The script has not been tested with other protobuf
+implementations. In case it fails to work with yours, run rprotoc over
+Mumble.proto and replace msg.rb with the resulting file.
+
+
+
+Developed for Ruby 1.9.3.
 
 
 For the parameter list, run  $ mumble-dicebot -h
