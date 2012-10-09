@@ -1,7 +1,7 @@
 Dependencies:
 * ruby_protobuf (0.4.11)
 
-WARNING: The script will most likely not work with other versions of protobuf, such as the "protobuf" package. Make sure you install "ruby_protobuf".
+WARNING: The script will most likely not work with other implementations of protobuf, such as the "protobuf" package. Make sure you install "ruby_protobuf".
 
 
 
