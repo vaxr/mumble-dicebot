@@ -1,4 +1,6 @@
-Dependcies: A protobuf implementation for Ruby,
+You can install the dependencies with 'bundle install'.
+
+Dependencies: A protobuf implementation for Ruby,
   such as  "ruby_protobuf" (0.4.11)
   OR       "protobuf" (1.4.2)
 

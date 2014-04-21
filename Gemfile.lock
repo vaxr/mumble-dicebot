@@ -1,0 +1,22 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    eventmachine (1.0.3)
+    eventually (0.1.1)
+    ffi (1.9.3)
+    ffi-rzmq (2.0.1)
+      ffi-rzmq-core (>= 1.0.1)
+    ffi-rzmq-core (1.0.3)
+      ffi (~> 1.9)
+    json_pure (1.8.1)
+    protobuf (1.4.2)
+      eventmachine
+      eventually
+      ffi-rzmq
+      json_pure
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  protobuf (= 1.4.2)
